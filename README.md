@@ -6,11 +6,19 @@ kind of work** — using native subagents, each pinned to its own model.
 - **Architect** (Fable) — plans, decomposes the task, writes handoff packages, does the final eval. Never writes code, so its context stays clean.
 - **Developer** (Opus) — the heavy lifting: real implementation + the build/fix/retry loop.
 - **Test-writer** (Sonnet) — boilerplate tests, mocks, fixtures, smoke checks.
-- **Reviewer** (Fable) — reads the diff and worker reports, returns a structured verdict. Read-only.
+- **Reviewer** (Fable) — reads the diff, worker reports, and Codex's findings; returns a structured verdict. Read-only.
+- **Codex** (OpenAI Codex CLI) — an independent second-opinion reviewer (a different model family, so it catches different bugs) and an on-demand troubleshooter when a worker gets stuck. Optional but recommended.
 
 The point: keep the expensive, context-sensitive reasoning (Fable) at the two
-ends, and route the high-volume trial-and-error middle to cheaper models. Full
+ends, route the high-volume trial-and-error middle to cheaper models, and add a
+cross-model reviewer (Codex) so no single model's blind spots slip through. Full
 rationale and diagram in [`docs/workflow/TIERED-AGENTS.md`](docs/workflow/TIERED-AGENTS.md).
+
+Two disciplines make or break the savings: **explicit handoffs** (the architect
+must pass a Definition of Ready before routing, or a cheaper worker will
+confidently wander down the wrong path) and a **boring shared run log**
+(`handoffs/RUN-STATE.md`, updated by every tier) so the reviewer reads what
+happened instead of reconstructing it from chat.
 
 ---
 
@@ -27,9 +35,13 @@ rationale and diagram in [`docs/workflow/TIERED-AGENTS.md`](docs/workflow/TIERED
     tier.md             # /tier slash command — one-shot trigger
 docs/workflow/
     TIERED-AGENTS.md    # how the workflow works + how to drive it
-    HANDOFF-TEMPLATE.md # the spec the architect hands to workers
-handoffs/packages/
-    README.md           # where generated handoff packages land
+    HANDOFF-TEMPLATE.md # the spec the architect hands to workers (+ Definition of Ready)
+handoffs/
+    RUN-STATE.md        # boring shared run log every tier updates
+    packages/
+      README.md         # where generated handoff packages land
+scripts/
+    codex-review.sh     # independent Codex second-opinion review (optional)
 install.sh              # copies the above into a target repo
 README.md               # this file
 ```
@@ -54,14 +66,14 @@ gets it.
 `.claude/` and `docs/`):
 
 ```bash
-cp -r .claude docs handoffs /path/to/your/repo/
+cp -r .claude docs handoffs scripts /path/to/your/repo/
 ```
 
 Commit them:
 
 ```bash
 cd /path/to/your/repo
-git add .claude docs/workflow handoffs/packages
+git add .claude docs/workflow handoffs/packages scripts/codex-review.sh
 git commit -m "chore: add tiered model workflow"
 ```
 
@@ -113,6 +125,10 @@ Verify the subagents are picked up with `/agents` in Claude Code.
 - **Claude Code** with subagent support (`.claude/agents/`) and custom slash
   commands (`.claude/commands/`).
 - **Model access** to Fable, Opus, and Sonnet on your plan/org.
+- **OpenAI Codex CLI** (optional, for the review gate + troubleshooting) —
+  install from https://github.com/openai/codex and run `codex login` once. If
+  it's absent, `scripts/codex-review.sh` exits cleanly and the workflow proceeds
+  without the second opinion.
 - **The `fable` alias.** The agent files use `model: fable`. If your Claude Code
   build doesn't resolve that alias, open `.claude/agents/architect.md` and
   `.claude/agents/reviewer.md` and replace `fable` with the full identifier
