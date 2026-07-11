@@ -14,11 +14,14 @@ ends, route the high-volume trial-and-error middle to cheaper models, and add a
 cross-model reviewer (Codex) so no single model's blind spots slip through. Full
 rationale and diagram in [`docs/workflow/TIERED-AGENTS.md`](docs/workflow/TIERED-AGENTS.md).
 
-Two disciplines make or break the savings: **explicit handoffs** (the architect
-must pass a Definition of Ready before routing, or a cheaper worker will
-confidently wander down the wrong path) and a **boring shared run log**
+Three disciplines make or break the savings: **explicit handoffs** (the
+architect must pass a Definition of Ready before routing, or a cheaper worker
+will confidently wander down the wrong path), a **boring shared run log**
 (`handoffs/RUN-STATE.md`, updated by every tier) so the reviewer reads what
-happened instead of reconstructing it from chat.
+happened instead of reconstructing it from chat, and **run-log hygiene** —
+RUN-STATE holds exactly ONE run at a time, and finished runs are archived to
+`handoffs/runs/` via the archive + drain ritual (below) instead of accreting
+into a context tax every tier pays on every run.
 
 ---
 
@@ -37,7 +40,8 @@ docs/workflow/
     TIERED-AGENTS.md    # how the workflow works + how to drive it
     HANDOFF-TEMPLATE.md # the spec the architect hands to workers (+ Definition of Ready)
 handoffs/
-    RUN-STATE.md        # boring shared run log every tier updates
+    RUN-STATE.md        # boring shared run log every tier updates (ONE run at a time)
+    runs/               # per-run archives (YYYY-MM-DD-<slug>.md) — greppable history
     packages/
       README.md         # where generated handoff packages land
 scripts/
@@ -117,6 +121,38 @@ Or drive one tier at a time when you want a checkpoint:
 > Now use the developer subagent to implement handoffs/packages/PKG-….md.
 
 Verify the subagents are picked up with `/agents` in Claude Code.
+
+---
+
+## Run-log hygiene: the archive + drain ritual
+
+`RUN-STATE.md` is read by the reviewer and the architect **every run**, so stale
+history in it is a context tax on every run — and interleaved old runs are a
+correctness hazard (a reviewer can mistake a prior run's worker entry for
+current). Two rules keep it self-limiting:
+
+1. **Archive, don't delete.** When a run finishes (or at the next plan time),
+   the finished run section moves to `handoffs/runs/YYYY-MM-DD-<slug>.md`,
+   topped with a short header: final status, blessed commits, and how the
+   carry-forward was drained. Git has the history anyway; per-run files keep it
+   greppable. Never overwrite an existing archive — suffix `-2` on a collision.
+2. **Drain before reset — enforced.** Resetting RUN-STATE is permitted only
+   when the previous run carries no undone obligations: deferred issues get
+   actually FILED in your real bug tracker, and unfinished gates / operator
+   follow-ups move to your cross-session handoff doc (or become tracker items).
+   A "Carry-forward" section is a hand-off to this drain step, never a place
+   where work lives — RUN-STATE must never become a shadow bug tracker.
+
+Division of labor: **workers** can't usually reach your tracker's tooling from
+inside a subagent, so they write *tracker-ready blocks* (title, file:line,
+fix shape, why deferred) under a `Punches to file:` line in their RUN-STATE
+entry; the **orchestrator** (your main session) does the actual filing when the
+package lands, and performs the end-of-run archive, leaving RUN-STATE at an
+idle `## Run: none active` sentinel. The next architect replaces the sentinel —
+never archives it. A cheap advisory tripwire (warn when RUN-STATE has more than
+one `## Run:` heading or exceeds ~300 lines — warn, never block) makes a
+skipped ritual visible; wire it into whatever status script or pre-commit hook
+your repo already runs.
 
 ---
 
